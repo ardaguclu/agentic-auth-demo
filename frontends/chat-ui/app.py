@@ -77,7 +77,7 @@ def check_auth_server_session():
             return None
         
         # Verify session with auth server
-        with httpx.Client() as client:
+        with httpx.Client(verify=False) as client:
             response = client.get(
                 f"{AUTH_SERVER_URL}/api/user-status", 
                 cookies={'auth_session': auth_session_cookie},
@@ -139,7 +139,7 @@ def index():
         try:
             # Verify session with auth server
             import httpx
-            with httpx.Client() as client:
+            with httpx.Client(verify=False) as client:
                 response = client.get(
                     f"{AUTH_SERVER_URL}/api/user-status", 
                     cookies={'auth_session': auth_session_cookie},
@@ -210,7 +210,7 @@ def callback():
     try:
         # Exchange code for tokens via auth server
         import httpx
-        with httpx.Client() as client:
+        with httpx.Client(verify=False) as client:
             # First, complete OAuth flow with auth server
             response = client.post(
                 f"{AUTH_SERVER_URL}/auth/token",
@@ -301,6 +301,7 @@ def callback():
                                         
                                         # Strip /sse suffix to get base URL for service discovery
                                         base_mcp_url = mcp_url.rstrip('/sse')
+                                        base_mcp_url = mcp_url.rstrip('/mcp')
                                         
                                         mcp_server_urls.append(base_mcp_url)
                                         logger.info(f"✅ Found MCP server: {base_mcp_url} (endpoint: {mcp_url})")
@@ -358,7 +359,7 @@ def callback():
                                                 
                                                 # Generate tokens for each discovered MCP server
                                                 for mcp_server_url, config in discovered_configs.items():
-                                                    auth_server_url = config.get('authorization_server')
+                                                    auth_server_url = "http://localhost:8002"#config.get('authorization_server')
                                                     if not auth_server_url:
                                                         logger.warning(f"⚠️ No auth server found for MCP server: {mcp_server_url}")
                                                         continue

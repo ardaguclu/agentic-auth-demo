@@ -130,7 +130,7 @@ async def upgrade_scope(
         justification = data.get('justification', 'User requested additional permissions')
         current_token = data.get('current_token')  # Current MCP token to upgrade
         resource_uri = data.get('resource')  # MCP server URI that needs the scope
-        
+
         logger.info(f"🔄 Scope upgrade request from {user.email} for scopes: {scopes}, resource: {resource_uri}")
         
         # Allow empty scopes for initial token generation

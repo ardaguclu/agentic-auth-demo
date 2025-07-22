@@ -199,6 +199,7 @@ def approve_request(request_id: str, admin_email: str) -> bool:
                 # Generate new MCP token with updated scopes
                 from utils.jwt_utils import generate_token
                 from models.schemas import TokenPayload
+                from config.settings import OIDC_ISSUER_URL
                 
                 # Create a token payload for the user
                 user_token_payload = TokenPayload(
@@ -210,7 +211,7 @@ def approve_request(request_id: str, admin_email: str) -> bool:
                     iat=int(datetime.now().timestamp()),
                     iss="http://localhost:8002"
                 )
-                
+
                 # Generate new token for the specific MCP resource
                 new_mcp_token = generate_token(user_token_payload, updated_scopes, audience=resource_uri)
                 

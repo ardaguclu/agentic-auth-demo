@@ -18,6 +18,7 @@ export SERVER_HOST=${SERVER_HOST:-localhost}
 export SERVER_PORT=${SERVER_PORT:-8002}
 export MCP_SERVER_URI=${MCP_SERVER_URI:-http://localhost:8001}
 export AUTH_DB_PATH=${AUTH_DB_PATH:-auth.db}
+export KUBECONFIG=${KUBECONFIG:-~/.kube/config}
 
 # Admin Configuration
 export ADMIN_EMAIL=${ADMIN_EMAIL:-gallettilance@gmail.com}
@@ -69,10 +70,10 @@ cleanup() {
         echo "   ✅ Admin dashboard stopped"
     fi
     
-    if [ ! -z "$MCP_PID" ]; then
-        kill $MCP_PID 2>/dev/null || true
-        echo "   ✅ MCP server stopped"
-    fi
+    podman logs kubernetes-mcp-server > logs/mcp_server.log 2>&1
+    podman stop kubernetes-mcp-server
+    podman rm kubernetes-mcp-server
+    echo "   ✅ MCP server stopped"
     
     if [ ! -z "$LLAMA_PID" ]; then
         kill $LLAMA_PID 2>/dev/null || true
@@ -94,11 +95,8 @@ trap cleanup SIGINT SIGTERM
 # Start MCP Server
 echo ""
 echo "🔧 Starting MCP Server..."
-cd mcp
-FASTMCP_PORT=8001 python mcp_server.py > ../logs/mcp_server.log 2>&1 &
-MCP_PID=$!
-cd ..
-echo "   ✅ MCP Server started (PID: $MCP_PID)"
+podman run -p 8001:8001 -d -v $(pwd)/mcp_config.toml:/app/config.toml:Z -v $CERTIFICATE_AUTHORITY:/app/certificate-authority:Z -v $KUBECONFIG:/app/kubeconfig:Z --name kubernetes-mcp-server quay.io/aguclu/kubernetes-mcp-server:agentic-auth-demo-2 --config /app/config.toml
+echo "   ✅ MCP Server started"
 echo "   📝 Logs: logs/mcp_server.log"
 
 # Wait a moment for MCP server to start

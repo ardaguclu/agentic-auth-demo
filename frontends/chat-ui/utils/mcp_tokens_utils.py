@@ -117,8 +117,8 @@ def prepare_mcp_headers_for_user(user_email: str) -> dict:
             if mcp_token and mcp_token != "NO_TOKEN_YET":
                 # Convert base URL to SSE endpoint URL for Llama Stack
                 mcp_endpoint_url = mcp_server_url
-                if not mcp_endpoint_url.endswith('/sse'):
-                    mcp_endpoint_url = f"{mcp_server_url}/sse"
+                if not mcp_endpoint_url.endswith('/mcp'):
+                    mcp_endpoint_url = f"{mcp_server_url}/mcp"
                 
                 mcp_headers[mcp_endpoint_url] = {
                     "Authorization": f"Bearer {mcp_token}"
