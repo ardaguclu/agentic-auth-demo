@@ -5,18 +5,9 @@
 
 set -e
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Configuration
-KEYCLOAK_PORT=8002
-KEYCLOAK_ADMIN=admin
-KEYCLOAK_ADMIN_PASSWORD=admin123
-KEYCLOAK_CONTAINER=keycloak
+source "$SCRIPT_DIR/scripts/demo_utils.sh"
 
 # Default environment variables
 export MCP_SERVER_URI=${MCP_SERVER_URI:-http://localhost:8001}
@@ -24,10 +15,7 @@ export LLAMA_STACK_URL=${LLAMA_STACK_URL:-http://localhost:8321}
 export ADMIN_EMAIL=${ADMIN_EMAIL:-}
 export FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-"dev-secret-change-in-production"}
 
-# Token Exchange V2 configuration (client secret set after setup)
-export OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-"http://localhost:8002/realms/authentication-demo"}
-export OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-"authentication-demo"}
-# OIDC_CLIENT_SECRET will be set after successful setup
+export KEYCLOAK_IMAGE=${KEYCLOAK_IMAGE:-"quay.io/keycloak/keycloak:26.2"}
 
 echo -e "${BLUE}🚀 Starting Token Exchange V2 Authentication Demo${NC}"
 echo "===================================================="
@@ -36,18 +24,20 @@ echo -e "${BLUE}📋 Initial Configuration:${NC}"
 echo "   MCP Server:     $MCP_SERVER_URI"
 echo "   Llama Stack:    $LLAMA_STACK_URL"
 echo "   Admin Email:    ${ADMIN_EMAIL:-Not set}"
-echo "   Keycloak:      http://localhost:$KEYCLOAK_PORT"
+echo "   Keycloak:      $KEYCLOAK_URL"
 echo "   Architecture:   Single Client Token Exchange V2"
 
 # Create logs directory
 mkdir -p logs
 
 # Clean up any existing Keycloak container
-echo -e "${BLUE}🧹 Cleaning up existing Keycloak container...${NC}"
-if docker ps -a --format '{{.Names}}' | grep -q "^${KEYCLOAK_CONTAINER}$"; then
-    docker stop $KEYCLOAK_CONTAINER >/dev/null 2>&1 || true
-    docker rm $KEYCLOAK_CONTAINER >/dev/null 2>&1 || true
-    echo -e "${GREEN}✅ Cleaned up existing container${NC}"
+if [ "$KEYCLOAK_RUN_CONTAINER" = true ] ; then
+    echo -e "${BLUE}🧹 Cleaning up existing Keycloak container...${NC}"
+    if $CONTAINER_RUNTIME ps -a --format '{{.Names}}' | grep -q "^${KEYCLOAK_CONTAINER}$"; then
+        $CONTAINER_RUNTIME stop $KEYCLOAK_CONTAINER >/dev/null 2>&1 || true
+        $CONTAINER_RUNTIME rm $KEYCLOAK_CONTAINER >/dev/null 2>&1 || true
+        echo -e "${GREEN}✅ Cleaned up existing container${NC}"
+    fi
 fi
 
 # Function to cleanup everything
@@ -77,12 +67,14 @@ cleanup() {
     fi
     
     # Stop Keycloak container
-    if docker ps -q -f name=$KEYCLOAK_CONTAINER | grep -q .; then
-        echo -e "${BLUE}🔐 Stopping Keycloak...${NC}"
-        docker stop $KEYCLOAK_CONTAINER >/dev/null
-        echo "   ✅ Keycloak stopped"
+    if [ "$KEYCLOAK_RUN_CONTAINER" = true ] ; then
+        if $CONTAINER_RUNTIME ps -q -f name=$KEYCLOAK_CONTAINER | grep -q .; then
+            echo -e "${BLUE}🔐 Stopping Keycloak...${NC}"
+            $CONTAINER_RUNTIME stop $KEYCLOAK_CONTAINER_NAME >/dev/null
+            echo "   ✅ Keycloak stopped"
+        fi
     fi
-    
+
     echo -e "${GREEN}🏁 Demo stopped${NC}"
     exit 0
 }
@@ -90,10 +82,12 @@ cleanup() {
 # Set up signal handlers
 trap cleanup SIGINT SIGTERM
 
-# Check if Docker is running
-if ! docker info > /dev/null 2>&1; then
-    echo -e "${RED}❌ Docker is not running. Please start Docker and try again.${NC}"
-    exit 1
+# Check if container runtime is active
+if [ "$KEYCLOAK_RUN_CONTAINER" = true ] ; then
+    if ! $CONTAINER_RUNTIME info > /dev/null 2>&1; then
+        echo -e "${RED}❌ $CONTAINER_RUNTIME is not running. Please start $CONTAINER_RUNTIME and try again.${NC}"
+        exit 1
+    fi
 fi
 
 # Check for required dependencies
@@ -110,44 +104,46 @@ fi
 
 echo -e "${GREEN}✅ Dependencies checked${NC}"
 
-# Start Keycloak
-echo -e "\n${BLUE}🔐 Starting Keycloak with Token Exchange V2...${NC}"
+if [ "$KEYCLOAK_RUN_CONTAINER" = true ] ; then
+    # Start Keycloak
+    echo -e "\n${BLUE}🔐 Starting Keycloak with Token Exchange V2...${NC}"
 
-# Pull Keycloak image first
-echo "📥 Pulling Keycloak 26.2 image..."
-docker pull quay.io/keycloak/keycloak:26.2
+    # Pull Keycloak image first
+    echo "📥 Pulling Keycloak image..."
+    $CONTAINER_RUNTIME pull $KEYCLOAK_IMAGE
 
-# Start Keycloak (Token Exchange V2 is enabled by default)
-docker run -d --name keycloak \
-    -p 8002:8080 \
-    -v keycloak_data:/opt/keycloak/data \
-    -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
-    -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin123 \
-    quay.io/keycloak/keycloak:26.2 \
-    start-dev
+    # Start Keycloak (Token Exchange V2 is enabled by default)
+    $CONTAINER_RUNTIME run -d --name $KEYCLOAK_CONTAINER_NAME \
+        -p $KEYCLOAK_PORT:8080 \
+        -v keycloak_data:/opt/keycloak/data \
+        -e KC_BOOTSTRAP_ADMIN_USERNAME=$KEYCLOAK_ADMIN \
+        -e KC_BOOTSTRAP_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD \
+        $KEYCLOAK_IMAGE \
+        start-dev
 
-# Wait for Keycloak to be ready
-echo -e "\n${BLUE}⏳ Waiting for Keycloak to start (this may take a minute)...${NC}"
-timeout=120
-counter=0
-while ! curl -s http://localhost:${KEYCLOAK_PORT}/health/ready >/dev/null 2>&1; do
-    if [ $counter -eq $timeout ]; then
-        echo -e "${RED}❌ Timeout waiting for Keycloak to start${NC}"
-        cleanup
-        exit 1
-    fi
-    if [ $((counter % 10)) -eq 0 ]; then
-        echo -e "${YELLOW}   Still waiting for Keycloak... ($counter seconds)${NC}"
-    fi
-    sleep 2
-    counter=$((counter + 2))
-done
+    # Wait for Keycloak to be ready
+    echo -e "\n${BLUE}⏳ Waiting for Keycloak to start (this may take a minute)...${NC}"
+    timeout=120
+    counter=0
+    while ! curl -s ${KEYCLOAK_URL}/health/ready >/dev/null 2>&1; do
+        if [ $counter -eq $timeout ]; then
+            echo -e "${RED}❌ Timeout waiting for Keycloak to start${NC}"
+            cleanup
+            exit 1
+        fi
+        if [ $((counter % 10)) -eq 0 ]; then
+            echo -e "${YELLOW}   Still waiting for Keycloak... ($counter seconds)${NC}"
+        fi
+        sleep 2
+        counter=$((counter + 2))
+    done
 
-echo -e "${GREEN}✅ Keycloak is running!${NC}"
+    echo -e "${GREEN}✅ Keycloak is running!${NC}"
 
-# Give Keycloak a moment to fully initialize
-echo -e "${BLUE}⏳ Waiting for Keycloak to fully initialize...${NC}"
-sleep 10
+    # Give Keycloak a moment to fully initialize
+    echo -e "${BLUE}⏳ Waiting for Keycloak to fully initialize...${NC}"
+    sleep 10
+fi
 
 # Test admin API access
 echo -e "${BLUE}🔍 Testing Keycloak admin API access...${NC}"
@@ -156,7 +152,7 @@ ADMIN_TOKEN_RESPONSE=$(curl -s -X POST \
     -d "username=$KEYCLOAK_ADMIN" \
     -d "password=$KEYCLOAK_ADMIN_PASSWORD" \
     -d "grant_type=password" \
-    "http://localhost:${KEYCLOAK_PORT}/realms/master/protocol/openid-connect/token")
+    "${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token")
 
 if ! echo "$ADMIN_TOKEN_RESPONSE" | grep -q "access_token"; then
     echo -e "${RED}❌ Could not get admin token. Response:${NC}"
@@ -185,12 +181,20 @@ SETUP_STATUS=${PIPESTATUS[0]}
 # Check if setup failed
 if [ $SETUP_STATUS -ne 0 ]; then
     echo -e "${RED}❌ Token Exchange V2 setup failed with status $SETUP_STATUS${NC}"
-    echo -e "${YELLOW}💡 Checking Keycloak container logs:${NC}"
-    docker logs $KEYCLOAK_CONTAINER
+
+    if [ "$KEYCLOAK_RUN_CONTAINER" = true ] ; then
+        echo -e "${YELLOW}💡 Checking Keycloak container logs:${NC}"
+        $CONTAINER_RUNTIME logs $KEYCLOAK_CONTAINER_NAME
+    fi
+
     echo -e "${YELLOW}💡 Check the errors above and try:${NC}"
     echo "   1. Run cleanup_demo.sh and start fresh"
-    echo "   2. Check Keycloak logs: docker logs $KEYCLOAK_CONTAINER"
-    echo "   3. Ensure no port conflicts on 8002"
+
+    if [ "$KEYCLOAK_RUN_CONTAINER" = true ] ; then
+        echo "   2. Check Keycloak logs: $CONTAINER_RUNTIME logs $KEYCLOAK_CONTAINER_NAME"
+        echo "   3. Ensure no port conflicts on $KEYCLOAK_POST"
+    fi
+
     rm -f "$SETUP_OUTPUT_FILE"
     cleanup
     exit 1
@@ -206,7 +210,7 @@ echo -e "\n${BLUE}🔧 Setting OIDC Configuration...${NC}"
 export OIDC_CLIENT_SECRET="demo-client-secret-change-in-production"
 
 # Create a .env file with OIDC configuration
-cat > frontends/chat-ui/.env << EOF
+cat > $SCRIPT_DIR/frontends/chat-ui/.env << EOF
 # OIDC Configuration (Generated by Token Exchange V2 setup)
 OIDC_ISSUER_URL=${OIDC_ISSUER_URL}
 OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
@@ -254,8 +258,8 @@ echo -e "${BLUE}Client ID:${NC}      $OIDC_CLIENT_ID"
 echo -e "${BLUE}Client Secret:${NC}  $OIDC_CLIENT_SECRET"
 echo ""
 echo -e "${GREEN}✅ Environment files created and loaded:${NC}"
-echo "   📄 frontends/chat-ui/.env"
-echo "   📄 .env (root directory)"
+echo "   📄 $SCRIPT_DIR/frontends/chat-ui/.env"
+echo "   📄 $SCRIPT_DIR/.env (root directory)"
 echo ""
 echo -e "${GREEN}💡 Variables are now available in this shell session${NC}"
 echo -e "${YELLOW}💡 For other terminals:${NC} source .env"
@@ -271,7 +275,7 @@ echo "   • JWT token structure and claims"
 echo "   • Self-exchange pattern functionality"
 echo ""
 
-if python test_token_exchange_v2.py; then
+if python $SCRIPT_DIR/test_token_exchange_v2.py; then
     echo -e "\n${GREEN}✅ Token Exchange V2 validation passed!${NC}"
     echo -e "${GREEN}✅ All authentication and authorization systems working correctly!${NC}"
 else
@@ -282,10 +286,10 @@ else
     echo "   3. Authorization policies not configured properly"
     echo ""
     echo -e "${YELLOW}💡 To debug:${NC}"
-    echo "   1. Check Keycloak logs: docker logs $KEYCLOAK_CONTAINER"
-    echo "   2. Verify Keycloak admin console: http://localhost:8002/admin"
-    echo "   3. Re-run setup: python setup_keycloak_v2.py"
-    echo "   4. Re-run tests: python test_token_exchange_v2.py"
+    echo "   1. Check Keycloak logs: $CONTAINER_RUNTIME logs $KEYCLOAK_CONTAINER_NAME"
+    echo "   2. Verify Keycloak admin console: ${KEYCLOAK_URL}/admin"
+    echo "   3. Re-run setup: python $SCRIPT_DIR/setup_keycloak_v2.py"
+    echo "   4. Re-run tests: python $SCRIPT_DIR/test_token_exchange_v2.py"
     echo ""
     echo -e "${BLUE}Press ENTER to continue anyway, or Ctrl+C to exit...${NC}"
     read -r
@@ -319,7 +323,7 @@ if [ -z "$OIDC_ISSUER_URL" ] || [ -z "$OIDC_CLIENT_ID" ] || [ -z "$OIDC_CLIENT_S
     echo ""
     echo "Try:"
     echo "   1. Running cleanup_demo.sh and starting fresh"
-    echo "   2. Checking the Keycloak logs: docker logs $KEYCLOAK_CONTAINER"
+    echo "   2. Checking the Keycloak logs: $CONTAINER_RUNTIME logs $KEYCLOAK_CONTAINER"
     cleanup
     exit 1
 fi
@@ -333,8 +337,8 @@ if ! curl -s "$OIDC_ISSUER_URL/.well-known/openid-configuration" >/dev/null; the
     echo "   2. The OIDC_ISSUER_URL is incorrect"
     echo ""
     echo "Try:"
-    echo "   1. Checking if Keycloak is running: docker ps"
-    echo "   2. Viewing Keycloak logs: docker logs $KEYCLOAK_CONTAINER"
+    echo "   1. Checking if Keycloak is running: $CONTAINER_RUNTIME ps"
+    echo "   2. Viewing Keycloak logs: $CONTAINER_RUNTIME logs $KEYCLOAK_CONTAINER"
     cleanup
     exit 1
 fi
@@ -345,32 +349,28 @@ echo -e "${GREEN}✅ Token Exchange V2 configuration validated${NC}"
 
 # Start MCP Server
 echo -e "\n${BLUE}🔧 Starting MCP Server...${NC}"
-cd mcp
-FASTMCP_PORT=8001 python mcp_server.py > ../logs/mcp_server.log 2>&1 &
+
+FASTMCP_PORT=8001 python "$SCRIPT_DIR/mcp_server.py" > "$SCRIPT_DIR/logs/mcp_server.log" 2>&1 &
 MCP_PID=$!
-cd ..
+
 echo "   ✅ MCP Server started (PID: $MCP_PID)"
 
 # Start Admin Dashboard Frontend
 echo -e "\n${BLUE}🎛️  Starting Admin Dashboard...${NC}"
-cd frontends/admin-dashboard
-python app.py > ../../logs/admin_dashboard.log 2>&1 &
+python "$SCRIPT_DIR/frontends/admin-dashboard/app.py" > "$SCRIPT_DIR/logs/admin_dashboard.log" 2>&1 &
 ADMIN_PID=$!
-cd ../..
 echo "   ✅ Admin Dashboard started (PID: $ADMIN_PID)"
 
 # Start Llama Stack
 echo -e "\n${BLUE}🦙 Starting Llama Stack...${NC}"
-llama stack run services/stack/run.yml > logs/llama_stack.log 2>&1 &
+llama stack run "$SCRIPT_DIR/services/stack/run.yml" > "$SCRIPT_DIR/logs/llama_stack.log" 2>&1 &
 LLAMA_PID=$!
 echo "   ✅ Llama Stack started (PID: $LLAMA_PID)"
 
 # Start Frontend
 echo -e "\n${BLUE}🌐 Starting Frontend...${NC}"
-cd frontends/chat-ui
-python app.py > ../../logs/frontend.log 2>&1 &
+python "$SCRIPT_DIR/frontends/chat-ui/app.py" > "$SCRIPT_DIR/logs/frontend.log" 2>&1 &
 FRONTEND_PID=$!
-cd ../..
 echo "   ✅ Frontend started (PID: $FRONTEND_PID)"
 
 # Wait for services to initialize
@@ -383,8 +383,8 @@ echo "   🌐 Chat Frontend:    http://localhost:5001"
 echo "   🎛️  Admin Dashboard: http://localhost:8003"
 echo "   🔧 MCP Server:      http://localhost:8001"
 echo "   🦙 Llama Stack:     http://localhost:8321"
-echo "   🔐 Keycloak:        http://localhost:8002"
-echo "   👑 Keycloak Admin:  http://localhost:8002/admin (admin/admin123)"
+echo "   🔐 Keycloak:        $KEYCLOAK_URL"
+echo "   👑 Keycloak Admin:  $KEYCLOAK_URL/admin ($KEYCLOAK_ADMIN/$KEYCLOAK_ADMIN_PASSWORD)"
 
 echo -e "\n${BLUE}📊 Monitoring:${NC}"
 echo "   📝 View all logs:          tail -f logs/*.log"
@@ -392,7 +392,7 @@ echo "   📝 Admin Dashboard logs:   tail -f logs/admin_dashboard.log"
 echo "   📝 MCP Server logs:        tail -f logs/mcp_server.log"
 echo "   📝 Llama Stack logs:       tail -f logs/llama_stack.log"
 echo "   📝 Frontend logs:          tail -f logs/frontend.log"
-echo "   📝 Keycloak logs:          docker logs -f $KEYCLOAK_CONTAINER"
+echo "   📝 Keycloak logs:          $CONTAINER_RUNTIME logs -f $KEYCLOAK_CONTAINER"
 
 echo -e "\n${BLUE}🔐 Token Exchange V2 Features:${NC}"
 echo -e "${GREEN}✅ Zero-Trust Architecture:${NC}"
