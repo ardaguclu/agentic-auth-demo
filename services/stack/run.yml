@@ -48,7 +48,7 @@ tool_groups:
   - toolgroup_id: mcp::mcp-auth
     provider_id: model-context-protocol
     mcp_endpoint:
-      uri: "http://localhost:8001/mcp"
+      uri: "http://localhost:8001/sse"
 
 models:
   - model_id: llama3.1:latest

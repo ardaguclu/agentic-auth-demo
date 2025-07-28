@@ -14,6 +14,7 @@ export MCP_SERVER_URI=${MCP_SERVER_URI:-http://localhost:8001}
 export LLAMA_STACK_URL=${LLAMA_STACK_URL:-http://localhost:8321}
 export ADMIN_EMAIL=${ADMIN_EMAIL:-}
 export FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-"dev-secret-change-in-production"}
+export KUBERNETES_MCP_SERVER_DIR=${KUBERNETES_MCP_SERVER_DIR:-}
 
 export KEYCLOAK_IMAGE=${KEYCLOAK_IMAGE:-"quay.io/keycloak/keycloak:26.2"}
 
@@ -216,7 +217,7 @@ OIDC_ISSUER_URL=${OIDC_ISSUER_URL}
 OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
 OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET}
 
-ADMIN_EMAIL="aguclu@redhat.com"
+ADMIN_EMAIL="admin@example.com"
 
 # Flask Configuration
 FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
@@ -237,7 +238,7 @@ OIDC_ISSUER_URL=${OIDC_ISSUER_URL}
 OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
 OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET}
 
-ADMIN_EMAIL="aguclu@redhat.com"
+ADMIN_EMAIL="admin@example.com"
 
 # Flask Configuration
 FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
@@ -259,7 +260,7 @@ OIDC_ISSUER_URL=${OIDC_ISSUER_URL}
 OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
 OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET}
 
-ADMIN_EMAIL="aguclu@redhat.com"
+ADMIN_EMAIL="admin@example.com"
 
 # Service URLs
 MCP_SERVER_URI=${MCP_SERVER_URI}
@@ -372,14 +373,6 @@ echo -e "${GREEN}✅ Token Exchange V2 configuration validated${NC}"
 
 # Now start other services
 
-# Start MCP Server
-echo -e "\n${BLUE}🔧 Starting MCP Server...${NC}"
-
-FASTMCP_PORT=8001 python "$SCRIPT_DIR/mcp/mcp_server.py" > "$SCRIPT_DIR/logs/mcp_server.log" 2>&1 &
-MCP_PID=$!
-
-echo "   ✅ MCP Server started (PID: $MCP_PID)"
-
 # Start Admin Dashboard Frontend
 echo -e "\n${BLUE}🎛️  Starting Admin Dashboard...${NC}"
 python "$SCRIPT_DIR/frontends/admin-dashboard/app.py" > "$SCRIPT_DIR/logs/admin_dashboard.log" 2>&1 &
@@ -391,6 +384,35 @@ echo -e "\n${BLUE}🦙 Starting Llama Stack...${NC}"
 llama stack run "$SCRIPT_DIR/services/stack/run.yml" > "$SCRIPT_DIR/logs/llama_stack.log" 2>&1 &
 LLAMA_PID=$!
 echo "   ✅ Llama Stack started (PID: $LLAMA_PID)"
+
+# Start MCP Server
+#echo -e "\n${BLUE}🔧 Starting MCP Server...${NC}"
+
+#FASTMCP_PORT=8001 python "$SCRIPT_DIR/mcp/mcp_server.py" > "$SCRIPT_DIR/logs/mcp_server.log" 2>&1 &
+#MCP_PID=$!
+
+#echo "   ✅ MCP Server started (PID: $MCP_PID)"
+# Start MCP Server
+#echo ""
+#echo "🔧 Starting Kubernetes MCP Server..."
+
+# Build the kubernetes-mcp-server
+#echo "   🔨 Building kubernetes-mcp-server..."
+#pushd "$KUBERNETES_MCP_SERVER_DIR"
+#go build -o kubernetes-mcp-server ./cmd/kubernetes-mcp-server
+#echo "   ✅ Build completed"
+#popd
+
+# Run the kubernetes-mcp-server with our config
+#echo "   🚀 Starting kubernetes-mcp-server with mcp_config.toml..."
+#"$KUBERNETES_MCP_SERVER_DIR/kubernetes-mcp-server" --config "$(pwd)/mcp_config.toml" > logs/mcp_server.log 2>&1 &
+#MCP_PID=$!
+#cd ..
+#echo "   ✅ MCP Server started (PID: $MCP_PID)"
+#echo "   📝 Logs: logs/mcp_server.log"
+
+# Wait a moment for MCP server to start
+#sleep 2
 
 # Start Frontend
 echo -e "\n${BLUE}🌐 Starting Frontend...${NC}"
