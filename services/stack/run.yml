@@ -34,10 +34,10 @@ providers:
       provider_type: remote::model-context-protocol
       config: {}
   inference:
-    - provider_id: openai
-      provider_type: remote::openai
+    - provider_id: ollama
+      provider_type: remote::ollama
       config:
-        api_key: ${env.OPENAI_API_KEY}
+        url: http://localhost:11434
   telemetry:
     - provider_id: meta-reference
       provider_type: inline::meta-reference
@@ -48,13 +48,13 @@ tool_groups:
   - toolgroup_id: mcp::mcp-auth
     provider_id: model-context-protocol
     mcp_endpoint:
-      uri: "http://localhost:8001/sse"
+      uri: "http://localhost:8001/mcp"
 
 models:
-  - model_id: gpt-4-turbo
-    provider_id: openai
+  - model_id: llama3.1:latest
+    provider_id: ollama
     model_type: llm
-    provider_model_id: gpt-4-turbo
+    provider_model_id: llama3.1:latest
 
 server:
   port: 8321
